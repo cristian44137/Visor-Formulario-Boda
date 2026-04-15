@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Search, Users, Music, Utensils, Phone, CheckCircle2, XCircle, HelpCircle, Footprints } from 'lucide-react';
+import { Search, Users, Music, Utensils, Phone, CheckCircle2, XCircle, HelpCircle, Footprints, Download, ArrowUpDown } from 'lucide-react';
 
 interface GuestListProps {
   guests: Guest[];
@@ -14,17 +14,27 @@ export function GuestList({ guests }: GuestListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showOnlyAllergies, setShowOnlyAllergies] = useState(false);
+  const [sortBy, setSortBy] = useState<string>('name-asc');
+
+  const getAttendanceStatus = (attendance: string) => {
+    if (!attendance) return 'pending';
+    const text = attendance.toLowerCase();
+    if (/\bno\b/.test(text) || text.includes('no asist') || text.includes('no podr') || text.includes('no voy')) return 'not_attending';
+    if (/\bs[íi]\b/.test(text) || text.includes('asist') || text.includes('confirm') || text.includes('voy')) return 'attending';
+    return 'pending';
+  };
 
   const filteredGuests = useMemo(() => {
-    return guests.filter((guest) => {
+    let result = guests.filter((guest) => {
       const matchesSearch = guest.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             guest.companions.some(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
       
       let matchesStatus = true;
+      const status = getAttendanceStatus(guest.attendance);
       if (filterStatus === 'attending') {
-        matchesStatus = guest.attendance.toLowerCase().includes('sí') || guest.attendance.toLowerCase().includes('si');
+        matchesStatus = status === 'attending';
       } else if (filterStatus === 'not_attending') {
-        matchesStatus = guest.attendance.toLowerCase().includes('no');
+        matchesStatus = status === 'not_attending';
       }
 
       let matchesAllergies = true;
@@ -34,14 +44,31 @@ export function GuestList({ guests }: GuestListProps) {
 
       return matchesSearch && matchesStatus && matchesAllergies;
     });
-  }, [guests, searchQuery, filterStatus, showOnlyAllergies]);
+
+    // Sorting logic
+    result.sort((a, b) => {
+      if (sortBy === 'name-asc') {
+        return a.name.localeCompare(b.name);
+      } else if (sortBy === 'name-desc') {
+        return b.name.localeCompare(a.name);
+      } else if (sortBy === 'status') {
+        const statusA = getAttendanceStatus(a.attendance);
+        const statusB = getAttendanceStatus(b.attendance);
+        const order = { 'attending': 1, 'pending': 2, 'not_attending': 3 };
+        return (order[statusA] || 4) - (order[statusB] || 4);
+      }
+      return 0;
+    });
+
+    return result;
+  }, [guests, searchQuery, filterStatus, showOnlyAllergies, sortBy]);
 
   const getStatusBadge = (attendance: string) => {
-    const text = attendance.toLowerCase();
-    if (text.includes('sí') || text.includes('si')) {
+    const status = getAttendanceStatus(attendance);
+    if (status === 'attending') {
       return <Badge className="bg-green-600/10 text-green-700 border-green-200 hover:bg-green-600/20"><CheckCircle2 className="w-3 h-3 mr-1" /> Asistirá</Badge>;
     }
-    if (text.includes('no')) {
+    if (status === 'not_attending') {
       return <Badge className="bg-red-600/10 text-red-700 border-red-200 hover:bg-red-600/20"><XCircle className="w-3 h-3 mr-1" /> No asistirá</Badge>;
     }
     return <Badge variant="outline" className="text-muted-foreground"><HelpCircle className="w-3 h-3 mr-1" /> Pendiente</Badge>;
@@ -53,18 +80,44 @@ export function GuestList({ guests }: GuestListProps) {
     let totalChildren = 0;
 
     guests.forEach(g => {
-      const text = g.attendance.toLowerCase();
-      if (text.includes('sí') || text.includes('si')) {
+      const status = getAttendanceStatus(g.attendance);
+      if (status === 'attending') {
         totalAttending++; // Main guest
         totalAttending += g.companions.length; // Companions
         totalChildren += g.companions.filter(c => c.isChild).length;
-      } else if (text.includes('no')) {
-        totalNotAttending++;
+      } else if (status === 'not_attending') {
+        totalNotAttending++; // Main guest
+        totalNotAttending += g.companions.length; // Companions
       }
     });
 
     return { totalAttending, totalNotAttending, totalChildren };
   }, [guests]);
+
+  const exportToCSV = () => {
+    const headers = ['Nombre', 'Asistencia', 'Teléfono', 'Alergias', 'Canción Sugerida', 'Talla Calzado', 'Acompañantes'];
+    const rows = filteredGuests.map(g => {
+      const companionsStr = g.companions.map(c => `${c.name}${c.isChild ? ' (Niño)' : ''}${c.allergies ? ` [Alergias: ${c.allergies}]` : ''}${c.shoeSize ? ` [Talla: ${c.shoeSize}]` : ''}`).join(' | ');
+      return [
+        `"${g.name}"`,
+        `"${g.attendance}"`,
+        `"${g.phone || ''}"`,
+        `"${g.allergies || ''}"`,
+        `"${g.suggestedSong || ''}"`,
+        `"${g.shoeSize || ''}"`,
+        `"${companionsStr}"`
+      ].join(',');
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "lista_invitados_filtrada.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-6">
@@ -99,9 +152,9 @@ export function GuestList({ guests }: GuestListProps) {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-full sm:w-[160px] bg-white">
+            <SelectTrigger className="w-full sm:w-[140px] bg-white">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
@@ -110,6 +163,21 @@ export function GuestList({ guests }: GuestListProps) {
               <SelectItem value="not_attending">No asistirán</SelectItem>
             </SelectContent>
           </Select>
+          
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-full sm:w-[160px] bg-white">
+              <div className="flex items-center gap-2">
+                <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+                <SelectValue placeholder="Ordenar por" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name-asc">Nombre (A-Z)</SelectItem>
+              <SelectItem value="name-desc">Nombre (Z-A)</SelectItem>
+              <SelectItem value="status">Por Estado</SelectItem>
+            </SelectContent>
+          </Select>
+
           <button
             onClick={() => setShowOnlyAllergies(!showOnlyAllergies)}
             className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors flex items-center gap-2 shrink-0 ${
@@ -121,6 +189,15 @@ export function GuestList({ guests }: GuestListProps) {
           >
             <Utensils className="w-4 h-4" />
             <span className="hidden sm:inline">Alergias</span>
+          </button>
+
+          <button
+            onClick={exportToCSV}
+            className="px-3 py-2 rounded-md border border-input bg-white text-muted-foreground hover:bg-muted text-sm font-medium transition-colors flex items-center gap-2 shrink-0"
+            title="Exportar lista actual a CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Exportar</span>
           </button>
         </div>
       </div>

@@ -4,14 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/card'
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Mic, MicOff, Send, Play, Square, Loader2, Bot, User, PhoneCall, PhoneOff } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { Guest } from '../types';
 
 interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
-  audioBuffer?: AudioBuffer | null;
-  isAudioLoading?: boolean;
 }
 
 interface AIChatAssistantProps {
@@ -25,13 +24,26 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [isListening, setIsListening] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isCalling, setIsCalling] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const liveSessionRef = useRef<any>(null);
   const liveAudioContextRef = useRef<AudioContext | null>(null);
+
+  // Load voices
+  useEffect(() => {
+    const loadVoices = () => {
+      setVoices(window.speechSynthesis.getVoices());
+    };
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -52,11 +64,11 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
 Aquí tienes los datos actuales de la lista de invitados en formato JSON:
 ${JSON.stringify(guests, null, 2)}
 
-Haz un resumen breve y amigable (máximo 3-4 párrafos) destacando:
+Haz un resumen MUY breve, directo y conciso (máximo 2 párrafos cortos o una lista de viñetas) destacando:
 1. Cuántos han confirmado, cuántos no, y cuántos faltan.
 2. Si hay alergias importantes a tener en cuenta.
-3. Algún dato curioso (como canciones sugeridas).
-No uses formato markdown complejo, solo texto claro.`;
+3. Algún dato curioso.
+Usa Markdown para formatear el texto (negritas, listas). Sé muy directo, sin introducciones largas.`;
 
         const response = await ai.models.generateContent({
           model: 'gemini-3.1-flash-lite-preview',
@@ -69,13 +81,11 @@ No uses formato markdown complejo, solo texto claro.`;
         const newMsg: Message = {
           id: msgId,
           role: 'model',
-          text: summaryText,
-          isAudioLoading: true
+          text: summaryText
         };
         
         setMessages([newMsg]);
         setIsGenerating(false);
-        preloadAudio(msgId, summaryText);
         
       } catch (error) {
         console.error("Error generating summary:", error);
@@ -86,86 +96,34 @@ No uses formato markdown complejo, solo texto claro.`;
     generateInitialSummary();
   }, [guests]);
 
-  const preloadAudio = async (messageId: string, text: string) => {
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const cleanText = text.replace(/[*#_]/g, '');
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro-preview-tts',
-        contents: `Lee este texto con voz natural en español de España:\n\n${cleanText}`,
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Zephyr" }
-            }
-          }
-        }
-      });
-
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) return;
-
-      const binary = atob(base64Audio);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      }
-      
-      let audioBuffer: AudioBuffer;
-      try {
-        audioBuffer = await audioContextRef.current.decodeAudioData(bytes.buffer.slice(0));
-      } catch (e) {
-        const pcmData = new Int16Array(bytes.buffer);
-        audioBuffer = audioContextRef.current.createBuffer(1, pcmData.length, 24000);
-        const channelData = audioBuffer.getChannelData(0);
-        for (let i = 0; i < pcmData.length; i++) {
-          channelData[i] = pcmData[i] / 32768.0;
-        }
-      }
-
-      setMessages(prev => prev.map(m => 
-        m.id === messageId ? { ...m, audioBuffer, isAudioLoading: false } : m
-      ));
-    } catch (error) {
-      console.error("Error preloading audio:", error);
-      setMessages(prev => prev.map(m => 
-        m.id === messageId ? { ...m, isAudioLoading: false } : m
-      ));
-    }
-  };
-
-  const togglePlay = (messageId: string, buffer?: AudioBuffer | null) => {
+  const togglePlay = (messageId: string, text: string) => {
     if (playingId === messageId) {
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.stop();
-        sourceNodeRef.current.disconnect();
-        sourceNodeRef.current = null;
-      }
+      window.speechSynthesis.cancel();
       setPlayingId(null);
       return;
     }
 
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
+    window.speechSynthesis.cancel();
+    
+    // Clean markdown for speech
+    const cleanText = text.replace(/[*#_]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1');
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'es-ES';
+    utterance.rate = 1.15; // Slightly faster
+    
+    // Prefer Google Spanish voice or any es-ES voice
+    const spanishVoices = voices.filter(v => v.lang.startsWith('es-ES') || v.lang === 'es_ES');
+    const preferredVoice = spanishVoices.find(v => v.name.includes('Google') || v.name.includes('Natural')) || spanishVoices[0];
+    
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
     }
+    
+    utterance.onend = () => setPlayingId(null);
+    utterance.onerror = () => setPlayingId(null);
 
-    if (!buffer || !audioContextRef.current) return;
-
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContextRef.current.destination);
-    source.onended = () => {
-      setPlayingId(null);
-    };
-    source.start();
-    sourceNodeRef.current = source;
     setPlayingId(messageId);
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleSend = async () => {
@@ -188,7 +146,7 @@ Historial de conversación:
 ${history}
 
 Usuario: ${userText}
-Asistente:`;
+Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu respuesta):`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-preview',
@@ -198,9 +156,8 @@ Asistente:`;
       const modelText = response.text || '';
       const modelId = (Date.now() + 1).toString();
       
-      setMessages(prev => [...prev, { id: modelId, role: 'model', text: modelText, isAudioLoading: true }]);
+      setMessages(prev => [...prev, { id: modelId, role: 'model', text: modelText }]);
       setIsGenerating(false);
-      preloadAudio(modelId, modelText);
       
     } catch (error) {
       console.error("Error sending message:", error);
@@ -391,7 +348,23 @@ Continúa la conversación de forma natural por voz.` }]
                   ? 'bg-primary text-primary-foreground rounded-tr-sm' 
                   : 'bg-muted/50 text-foreground rounded-tl-sm'
               }`}>
-                <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                {msg.role === 'model' ? (
+                  <div className="text-sm leading-relaxed">
+                    <ReactMarkdown
+                      components={{
+                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2" {...props} />,
+                        li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                        strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                )}
                 
                 {msg.role === 'model' && (
                   <div className="mt-3 flex justify-end">
@@ -399,18 +372,15 @@ Continúa la conversación de forma natural por voz.` }]
                       variant="secondary"
                       size="sm"
                       className="h-8 rounded-full bg-white/50 hover:bg-white"
-                      onClick={() => togglePlay(msg.id, msg.audioBuffer)}
-                      disabled={msg.isAudioLoading && !msg.audioBuffer}
+                      onClick={() => togglePlay(msg.id, msg.text)}
                     >
-                      {msg.isAudioLoading && !msg.audioBuffer ? (
-                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                      ) : playingId === msg.id ? (
+                      {playingId === msg.id ? (
                         <Square className="w-3.5 h-3.5 mr-1.5 fill-current" />
                       ) : (
                         <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
                       )}
                       <span className="text-xs font-medium">
-                        {msg.isAudioLoading && !msg.audioBuffer ? 'Cargando voz...' : playingId === msg.id ? 'Detener' : 'Escuchar'}
+                        {playingId === msg.id ? 'Detener' : 'Escuchar'}
                       </span>
                     </Button>
                   </div>
