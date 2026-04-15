@@ -1,6 +1,8 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": [],
+  "name": "Boda Silvina y Luis",
+  "description": "Aplicación para gestionar la lista de invitados de la boda, con resumen inteligente y asistente de voz.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
   "majorCapabilities": []
 }
