@@ -36,7 +36,7 @@ export function CSVUploader({ onUpload }: CSVUploaderProps) {
               name: row['AcompaÃ±Ante 2 Nombre'] || row['Acompañante 2 Nombre'] || '',
               allergies: row['AcompaÃ±Ante 2 Alergias'] || row['Acompañante 2 Alergias'] || '',
               isChild: (row['AcompaÃ±Ante 2 Es NiÃ±O'] || row['Acompañante 2 Es Niño']) === 'on',
-              shoeSize: '', // Not in example for comp 2
+              shoeSize: row['AcompaÃ±Ante 2 Talla Calzado'] || row['Acompañante 2 Talla Calzado'] || '',
             });
           }
 

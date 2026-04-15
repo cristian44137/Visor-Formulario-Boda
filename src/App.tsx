@@ -7,8 +7,7 @@ import React, { useState } from 'react';
 import { Guest } from './types';
 import { CSVUploader } from './components/CSVUploader';
 import { GuestList } from './components/GuestList';
-import { AISummary } from './components/AISummary';
-import { VoiceAssistant } from './components/VoiceAssistant';
+import { AIChatAssistant } from './components/AIChatAssistant';
 import { Heart } from 'lucide-react';
 
 export default function App() {
@@ -61,7 +60,7 @@ export default function App() {
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex justify-between items-center border-b border-border/50 pb-4">
               <h2 className="text-2xl font-serif font-medium">
-                Total de Invitados: <span className="text-primary">{guests.length}</span>
+                Total de Invitados: <span className="text-primary">{guests.length + guests.reduce((acc, g) => acc + g.companions.length, 0)}</span>
               </h2>
               <button 
                 onClick={() => setGuests([])}
@@ -76,8 +75,7 @@ export default function App() {
                 <GuestList guests={guests} />
               </div>
               <div className="space-y-8">
-                <AISummary guests={guests} />
-                <VoiceAssistant guests={guests} />
+                <AIChatAssistant guests={guests} />
               </div>
             </div>
           </div>
