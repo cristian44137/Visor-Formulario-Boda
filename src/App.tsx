@@ -42,7 +42,7 @@ export default function App() {
         <div className="container max-w-4xl mx-auto relative z-10">
           <Heart className="w-8 h-8 text-primary mx-auto mb-6 opacity-80" />
           <h1 className="text-5xl md:text-7xl font-serif font-medium tracking-tight text-foreground mb-6">
-            Di "Sí" a nuestra <br className="hidden md:block" /> invitación
+            Boda Silvina y Luis
           </h1>
           <p className="text-lg md:text-xl text-primary uppercase tracking-[0.3em] font-medium">
             R. S. V. P

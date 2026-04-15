@@ -34,9 +34,7 @@ export function VoiceAssistant({ guests }: VoiceAssistantProps) {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
           },
-          systemInstruction: `Eres un asistente de bodas amable y elegante. Responde preguntas sobre los invitados. 
-          Aquí están los datos de los invitados en formato JSON: ${JSON.stringify(guests)}. 
-          Responde de manera concisa y útil.`,
+          systemInstruction: `Habla con voz de Español de España.`,
         },
         callbacks: {
           onopen: async () => {
