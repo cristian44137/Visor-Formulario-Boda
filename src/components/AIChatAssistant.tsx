@@ -20,6 +20,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isCalling, setIsCalling] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [callState, setCallState] = useState<'idle' | 'listening' | 'speaking' | 'processing'>('idle');
   
   const [activeInput, setActiveInput] = useState('');
   const [activeOutput, setActiveOutput] = useState('');
@@ -64,6 +65,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
     }
     setIsCalling(false);
     setIsConnecting(false);
+    setCallState('idle');
     nextPlayTimeRef.current = 0;
     
     // Flush any remaining active text
@@ -147,11 +149,13 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
             
             setIsConnecting(false);
             setIsCalling(true);
+            setCallState('listening');
           },
           onmessage: async (message: any) => {
             // Handle audio playback
             const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio) {
+              setCallState('speaking');
               const binary = atob(base64Audio);
               const buffer = new ArrayBuffer(binary.length);
               const view = new DataView(buffer);
@@ -175,15 +179,30 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
               source.start(startTime);
               nextPlayTimeRef.current = startTime + audioBuffer.duration;
+              
+              source.onended = () => {
+                if (audioCtx.currentTime >= nextPlayTimeRef.current - 0.1) {
+                  setCallState('listening');
+                }
+              };
             }
             
             // Handle interruption
             if (message.serverContent?.interrupted) {
               nextPlayTimeRef.current = audioCtx.currentTime;
+              setCallState('listening');
+            }
+            
+            // Handle turn complete
+            if (message.serverContent?.turnComplete) {
+              if (callState === 'processing') {
+                 setCallState('listening');
+              }
             }
             
             // Handle transcriptions
             if (message.serverContent?.inputTranscription) {
+              setCallState('processing');
               const t = message.serverContent.inputTranscription;
               if (t.text) currentInputRef.current += t.text;
               setActiveInput(currentInputRef.current);
@@ -333,6 +352,44 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
               <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 <span className="text-sm text-muted-foreground">Conectando llamada...</span>
+              </div>
+            </div>
+          )}
+          
+          {isCalling && !isConnecting && callState !== 'idle' && (
+            <div className="flex gap-3 justify-start">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
+                <Bot className="w-4 h-4 text-primary" />
+              </div>
+              <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
+                {callState === 'listening' && (
+                  <>
+                    <div className="flex gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse delay-75" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse delay-150" />
+                    </div>
+                    <span className="text-sm text-muted-foreground ml-2">Escuchando...</span>
+                  </>
+                )}
+                {callState === 'processing' && (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span className="text-sm text-muted-foreground">Procesando...</span>
+                  </>
+                )}
+                {callState === 'speaking' && (
+                  <>
+                    <div className="flex gap-1 items-center h-4">
+                      <div className="w-1 bg-primary animate-[bounce_1s_infinite] h-2" />
+                      <div className="w-1 bg-primary animate-[bounce_1s_infinite_0.2s] h-4" />
+                      <div className="w-1 bg-primary animate-[bounce_1s_infinite_0.4s] h-3" />
+                      <div className="w-1 bg-primary animate-[bounce_1s_infinite_0.6s] h-4" />
+                      <div className="w-1 bg-primary animate-[bounce_1s_infinite_0.8s] h-2" />
+                    </div>
+                    <span className="text-sm text-muted-foreground ml-2">Hablando...</span>
+                  </>
+                )}
               </div>
             </div>
           )}
