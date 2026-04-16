@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/card';
 import { Button } from './ui/button';
-import { Bot, User, PhoneCall, PhoneOff, Loader2 } from 'lucide-react';
+import { Bot, User, PhoneCall, PhoneOff, Loader2, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Guest } from '../types';
 
@@ -10,6 +10,7 @@ interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
+  timestamp?: string;
 }
 
 interface AIChatAssistantProps {
@@ -21,6 +22,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [isCalling, setIsCalling] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [callState, setCallState] = useState<'idle' | 'listening' | 'speaking' | 'processing'>('idle');
+  const [isMuted, setIsMuted] = useState(false);
   
   const [activeInput, setActiveInput] = useState('');
   const [activeOutput, setActiveOutput] = useState('');
@@ -30,10 +32,15 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const liveAudioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const isMutedRef = useRef(isMuted);
   
   const currentInputRef = useRef('');
   const currentOutputRef = useRef('');
   const nextPlayTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -70,12 +77,12 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
     
     // Flush any remaining active text
     if (currentInputRef.current) {
-      setMessages(prev => [...prev, { id: Date.now().toString() + '-user', role: 'user', text: currentInputRef.current }]);
+      setMessages(prev => [...prev, { id: Date.now().toString() + '-' + Math.random() + '-user', role: 'user', text: currentInputRef.current.trim(), timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
       currentInputRef.current = '';
       setActiveInput('');
     }
     if (currentOutputRef.current) {
-      setMessages(prev => [...prev, { id: Date.now().toString() + '-model', role: 'model', text: currentOutputRef.current }]);
+      setMessages(prev => [...prev, { id: Date.now().toString() + '-' + Math.random() + '-model', role: 'model', text: currentOutputRef.current.trim(), timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
       currentOutputRef.current = '';
       setActiveOutput('');
     }
@@ -121,6 +128,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
 
             processor.onaudioprocess = (e) => {
               if (!liveSessionRef.current) return;
+              if (isMutedRef.current) return;
               const inputData = e.inputBuffer.getChannelData(0);
               const pcm16 = new Int16Array(inputData.length);
               for (let i = 0; i < inputData.length; i++) {
@@ -147,14 +155,36 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               });
             };
             
+            // Disable UI listening state if muted
             setIsConnecting(false);
             setIsCalling(true);
             setCallState('listening');
           },
           onmessage: async (message: any) => {
+            const flushInput = () => {
+              if (currentInputRef.current.trim()) {
+                const text = currentInputRef.current.trim();
+                const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                setMessages(prev => [...prev, { id: Date.now().toString() + '-' + Math.random() + '-user', role: 'user', text, timestamp: time }]);
+              }
+              currentInputRef.current = '';
+              setActiveInput('');
+            };
+
+            const flushOutput = () => {
+              if (currentOutputRef.current.trim()) {
+                const text = currentOutputRef.current.trim();
+                const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                setMessages(prev => [...prev, { id: Date.now().toString() + '-' + Math.random() + '-model', role: 'model', text, timestamp: time }]);
+              }
+              currentOutputRef.current = '';
+              setActiveOutput('');
+            };
+
             // Handle audio playback
             const parts = message.serverContent?.modelTurn?.parts;
             if (parts) {
+              flushInput(); // Model started responding, flush user input if any
               for (const part of parts) {
                 const base64Audio = part?.inlineData?.data;
                 if (base64Audio) {
@@ -194,12 +224,15 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
             
             // Handle interruption
             if (message.serverContent?.interrupted) {
+              flushOutput();
+              flushInput();
               nextPlayTimeRef.current = audioCtx.currentTime;
               setCallState('listening');
             }
             
             // Handle turn complete
             if (message.serverContent?.turnComplete) {
+              flushOutput();
               if (callState === 'processing') {
                  setCallState('listening');
               }
@@ -211,25 +244,11 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               const t = message.serverContent.inputTranscription;
               if (t.text) currentInputRef.current += t.text;
               setActiveInput(currentInputRef.current);
-              if (t.finished) {
-                if (currentInputRef.current.trim()) {
-                  setMessages(prev => [...prev, { id: Date.now().toString() + '-user', role: 'user', text: currentInputRef.current }]);
-                }
-                currentInputRef.current = '';
-                setActiveInput('');
-              }
             }
             if (message.serverContent?.outputTranscription) {
               const t = message.serverContent.outputTranscription;
               if (t.text) currentOutputRef.current += t.text;
               setActiveOutput(currentOutputRef.current);
-              if (t.finished) {
-                if (currentOutputRef.current.trim()) {
-                  setMessages(prev => [...prev, { id: Date.now().toString() + '-model', role: 'model', text: currentOutputRef.current }]);
-                }
-                currentOutputRef.current = '';
-                setActiveOutput('');
-              }
             }
           }
         },
@@ -292,27 +311,34 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
                 </div>
               )}
               
-              <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                msg.role === 'user' 
-                  ? 'bg-primary text-primary-foreground rounded-tr-sm' 
-                  : 'bg-muted/50 text-foreground rounded-tl-sm'
-              }`}>
-                {msg.role === 'model' ? (
-                  <div className="text-sm leading-relaxed">
-                    <ReactMarkdown
-                      components={{
-                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2" {...props} />,
-                        li: ({node, ...props}) => <li className="mb-1" {...props} />,
-                        strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
-                      }}
-                    >
-                      {msg.text}
-                    </ReactMarkdown>
-                  </div>
-                ) : (
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+              <div className={`max-w-[80%] flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`rounded-2xl px-4 py-3 shadow-sm ${
+                  msg.role === 'user' 
+                    ? 'bg-primary text-primary-foreground rounded-tr-sm' 
+                    : 'bg-muted/50 text-foreground rounded-tl-sm border border-border/50'
+                }`}>
+                  {msg.role === 'model' ? (
+                    <div className="text-sm leading-relaxed">
+                      <ReactMarkdown
+                        components={{
+                          p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                          ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2" {...props} />,
+                          ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2" {...props} />,
+                          li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                          strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                  )}
+                </div>
+                {msg.timestamp && (
+                  <span className="text-[10px] text-muted-foreground mt-1 px-1">
+                    {msg.timestamp}
+                  </span>
                 )}
               </div>
               
@@ -400,11 +426,25 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
         </div>
       </CardContent>
       
-      <CardFooter className="p-4 border-t border-border/50 bg-muted/20 flex justify-center">
+      <CardFooter className="p-4 border-t border-border/50 bg-muted/20 flex justify-center gap-3">
+        {isCalling && !isConnecting && (
+          <Button
+            size="icon"
+            onClick={() => setIsMuted(!isMuted)}
+            className={`w-14 h-14 rounded-full shadow-md transition-all shrink-0 ${
+              isMuted 
+                ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                : 'bg-white hover:bg-gray-100 text-gray-700 border border-border'
+            }`}
+            title={isMuted ? "Reactivar micrófono" : "Pausar micrófono"}
+          >
+            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+          </Button>
+        )}
         <Button 
           size="lg" 
           onClick={toggleCall}
-          className={`rounded-full px-8 py-6 shadow-md transition-all w-full max-w-md ${
+          className={`rounded-full px-8 py-6 shadow-md transition-all w-full max-w-sm ${
             isCalling 
               ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
               : 'bg-primary hover:bg-primary/90'

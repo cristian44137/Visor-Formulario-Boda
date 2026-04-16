@@ -68,9 +68,13 @@ export default function App() {
                   // Count the main guest
                   let count = 1;
                   
-                  // Adult companions only
+                  // Count all companions (including children)
                   if (g.companions && g.companions.length > 0) {
-                    count += g.companions.filter(c => !c.isChild).length;
+                    count += g.companions.length;
+                  }
+                  
+                  if (g.childrenCount) {
+                    count += g.childrenCount;
                   }
                   
                   return acc + count;
