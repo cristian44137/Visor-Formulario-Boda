@@ -95,6 +95,9 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
         liveAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       }
       const audioCtx = liveAudioContextRef.current;
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
       nextPlayTimeRef.current = audioCtx.currentTime;
 
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -107,7 +110,12 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
             const processor = audioCtx.createScriptProcessor(4096, 1, 1);
             processorRef.current = processor;
             source.connect(processor);
-            processor.connect(audioCtx.destination);
+            
+            // Connect to a silent gain node to avoid feedback but keep the processor running
+            const silentGain = audioCtx.createGain();
+            silentGain.gain.value = 0;
+            processor.connect(silentGain);
+            silentGain.connect(audioCtx.destination);
 
             processor.onaudioprocess = (e) => {
               if (!liveSessionRef.current) return;
@@ -206,9 +214,13 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
           },
-          systemInstruction: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
+          systemInstruction: {
+            parts: [{
+              text: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
 Datos de invitados: ${JSON.stringify(guests)}
-IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y preguntando en qué puedes ayudarle.`,
+IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y preguntando en qué puedes ayudarle.`
+            }]
+          },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
         }
