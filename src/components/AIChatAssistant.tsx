@@ -96,34 +96,64 @@ Usa Markdown para formatear el texto (negritas, listas). Sé muy directo, sin in
     generateInitialSummary();
   }, [guests]);
 
-  const togglePlay = (messageId: string, text: string) => {
+  const togglePlay = async (messageId: string, text: string) => {
     if (playingId === messageId) {
-      window.speechSynthesis.cancel();
+      if (liveAudioContextRef.current) {
+        liveAudioContextRef.current.close();
+        liveAudioContextRef.current = null;
+      }
       setPlayingId(null);
       return;
     }
 
-    window.speechSynthesis.cancel();
-    
-    // Clean markdown for speech
-    const cleanText = text.replace(/[*#_]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1');
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'es-ES';
-    utterance.rate = 1.15; // Slightly faster
-    
-    // Prefer Google Spanish voice or any es-ES voice
-    const spanishVoices = voices.filter(v => v.lang.startsWith('es-ES') || v.lang === 'es_ES');
-    const preferredVoice = spanishVoices.find(v => v.name.includes('Google') || v.name.includes('Natural')) || spanishVoices[0];
-    
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-    
-    utterance.onend = () => setPlayingId(null);
-    utterance.onerror = () => setPlayingId(null);
-
     setPlayingId(messageId);
-    window.speechSynthesis.speak(utterance);
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-tts-preview",
+        contents: [{ parts: [{ text: text }] }],
+        config: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+              },
+          },
+        },
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        if (liveAudioContextRef.current) {
+           liveAudioContextRef.current.close();
+        }
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        liveAudioContextRef.current = audioCtx;
+        
+        const binary = atob(base64Audio);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const pcmData = new Int16Array(bytes.buffer);
+        const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
+        const channelData = audioBuffer.getChannelData(0);
+        for (let i = 0; i < pcmData.length; i++) {
+          channelData[i] = pcmData[i] / 32768.0;
+        }
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+        source.onended = () => setPlayingId(null);
+        source.start();
+      } else {
+        setPlayingId(null);
+      }
+    } catch (error) {
+      console.error("TTS error:", error);
+      setPlayingId(null);
+    }
   };
 
   const handleSend = async () => {
@@ -139,17 +169,15 @@ Usa Markdown para formatear el texto (negritas, listas). Sé muy directo, sin in
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const history = messages.map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text}`).join('\n\n');
-      const prompt = `Contexto de la lista de invitados:
-${JSON.stringify(guests, null, 2)}
-
-Historial de conversación:
+      const prompt = `Contexto de invitados: ${guests.length} en total.
+Historial:
 ${history}
 
 Usuario: ${userText}
 Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu respuesta):`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.1-flash-preview',
         contents: prompt,
       });
       
@@ -207,6 +235,13 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
         model: 'gemini-3.1-flash-live-preview',
         callbacks: {
           onopen: () => {
+            sessionPromise.then((session) => {
+              session.sendClientContent({
+                turns: [{ role: 'user', parts: [{ text: 'Hola, acabo de conectarme. Salúdame brevemente y dime que estás escuchando.' }] }],
+                turnComplete: true
+              });
+            });
+
             const source = audioCtx.createMediaStreamSource(stream);
             const processor = audioCtx.createScriptProcessor(4096, 1, 1);
             processorRef.current = processor;
@@ -220,7 +255,13 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
               for (let i = 0; i < inputData.length; i++) {
                 pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
               }
-              const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+              
+              const bytes = new Uint8Array(pcm16.buffer);
+              let binary = '';
+              for (let i = 0; i < bytes.length; i += 1024) {
+                binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 1024)));
+              }
+              const base64 = btoa(binary);
               
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({
