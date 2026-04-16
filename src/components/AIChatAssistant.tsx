@@ -24,7 +24,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [callState, setCallState] = useState<'idle' | 'listening' | 'speaking' | 'processing'>('idle');
   const [isMuted, setIsMuted] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState('Almir');
+  const [selectedVoice, setSelectedVoice] = useState('Puck');
   
   const [activeInput, setActiveInput] = useState('');
   const [activeOutput, setActiveOutput] = useState('');
@@ -39,6 +39,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const currentInputRef = useRef('');
   const currentOutputRef = useRef('');
   const nextPlayTimeRef = useRef<number>(0);
+  const activeAudioNodesRef = useRef<AudioBufferSourceNode[]>([]);
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -72,8 +73,14 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
       liveAudioContextRef.current.close();
       liveAudioContextRef.current = null;
     }
+    activeAudioNodesRef.current.forEach(node => {
+      try { node.stop(); } catch(e) {}
+    });
+    activeAudioNodesRef.current = [];
+
     setIsCalling(false);
     setIsConnecting(false);
+    setIsMuted(false);
     setCallState('idle');
     nextPlayTimeRef.current = 0;
     
@@ -211,11 +218,14 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
                   audioSource.buffer = audioBuffer;
                   audioSource.connect(audioCtx.destination);
                   
+                  activeAudioNodesRef.current.push(audioSource);
+                  
                   const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
                   audioSource.start(startTime);
                   nextPlayTimeRef.current = startTime + audioBuffer.duration;
                   
                   audioSource.onended = () => {
+                    activeAudioNodesRef.current = activeAudioNodesRef.current.filter(n => n !== audioSource);
                     if (audioCtx.currentTime >= nextPlayTimeRef.current - 0.1) {
                       setCallState('listening');
                     }
@@ -229,6 +239,12 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               flushOutput();
               flushInput();
               nextPlayTimeRef.current = audioCtx.currentTime;
+              
+              activeAudioNodesRef.current.forEach(node => {
+                try { node.stop(); } catch(e) {}
+              });
+              activeAudioNodesRef.current = [];
+              
               setCallState('listening');
             }
             
@@ -437,8 +453,8 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
                 <SelectValue placeholder="Selecciona una voz" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Almir">Almir (Masculina)</SelectItem>
-                <SelectItem value="Aoede">Aoede (Femenina)</SelectItem>
+                <SelectItem value="Puck">Voz Masculina (Puck)</SelectItem>
+                <SelectItem value="Zephyr">Voz Femenina (Zephyr)</SelectItem>
               </SelectContent>
             </Select>
           </div>
