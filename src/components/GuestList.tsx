@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Search, Users, Music, Utensils, Phone, CheckCircle2, XCircle, HelpCircle, Footprints, ArrowUpDown } from 'lucide-react';
+import { getAttendanceStatus } from '../lib/utils';
 
 interface GuestListProps {
   guests: Guest[];
@@ -15,14 +16,6 @@ export function GuestList({ guests }: GuestListProps) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [showOnlyAllergies, setShowOnlyAllergies] = useState(false);
   const [sortBy, setSortBy] = useState<string>('name-asc');
-
-  const getAttendanceStatus = (attendance: string) => {
-    if (!attendance) return 'pending';
-    const text = attendance.toLowerCase();
-    if (/\bno\b/.test(text) || text.includes('no asist') || text.includes('no podr') || text.includes('no voy')) return 'not_attending';
-    if (/\bs[íi]\b/.test(text) || text.includes('asist') || text.includes('confirm') || text.includes('voy')) return 'attending';
-    return 'pending';
-  };
 
   const filteredGuests = useMemo(() => {
     let result = guests.filter((guest) => {

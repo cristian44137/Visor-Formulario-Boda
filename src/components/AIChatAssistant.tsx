@@ -32,6 +32,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   
   const currentInputRef = useRef('');
   const currentOutputRef = useRef('');
+  const nextPlayTimeRef = useRef<number>(0);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -63,6 +64,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
     }
     setIsCalling(false);
     setIsConnecting(false);
+    nextPlayTimeRef.current = 0;
     
     // Flush any remaining active text
     if (currentInputRef.current) {
@@ -93,6 +95,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
         liveAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       }
       const audioCtx = liveAudioContextRef.current;
+      nextPlayTimeRef.current = audioCtx.currentTime;
 
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       
@@ -114,8 +117,14 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
                 pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
               }
               
-              const bytes = new Uint8Array(pcm16.buffer);
+              const buffer = new ArrayBuffer(pcm16.length * 2);
+              const view = new DataView(buffer);
+              for (let i = 0; i < pcm16.length; i++) {
+                view.setInt16(i * 2, pcm16[i], true);
+              }
+              
               let binary = '';
+              const bytes = new Uint8Array(buffer);
               for (let i = 0; i < bytes.length; i++) {
                 binary += String.fromCharCode(bytes[i]);
               }
@@ -136,11 +145,16 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
             const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (base64Audio) {
               const binary = atob(base64Audio);
-              const bytes = new Uint8Array(binary.length);
+              const buffer = new ArrayBuffer(binary.length);
+              const view = new DataView(buffer);
               for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
+                view.setUint8(i, binary.charCodeAt(i));
               }
-              const pcmData = new Int16Array(bytes.buffer);
+              const pcmData = new Int16Array(Math.floor(binary.length / 2));
+              for (let i = 0; i < pcmData.length; i++) {
+                pcmData[i] = view.getInt16(i * 2, true);
+              }
+              
               const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000); // Output is 24000Hz
               const channelData = audioBuffer.getChannelData(0);
               for (let i = 0; i < pcmData.length; i++) {
@@ -149,7 +163,15 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               const source = audioCtx.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(audioCtx.destination);
-              source.start();
+              
+              const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
+              source.start(startTime);
+              nextPlayTimeRef.current = startTime + audioBuffer.duration;
+            }
+            
+            // Handle interruption
+            if (message.serverContent?.interrupted) {
+              nextPlayTimeRef.current = audioCtx.currentTime;
             }
             
             // Handle transcriptions
@@ -158,7 +180,9 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               if (t.text) currentInputRef.current += t.text;
               setActiveInput(currentInputRef.current);
               if (t.finished) {
-                setMessages(prev => [...prev, { id: Date.now().toString() + '-user', role: 'user', text: currentInputRef.current }]);
+                if (currentInputRef.current.trim()) {
+                  setMessages(prev => [...prev, { id: Date.now().toString() + '-user', role: 'user', text: currentInputRef.current }]);
+                }
                 currentInputRef.current = '';
                 setActiveInput('');
               }
@@ -168,7 +192,9 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
               if (t.text) currentOutputRef.current += t.text;
               setActiveOutput(currentOutputRef.current);
               if (t.finished) {
-                setMessages(prev => [...prev, { id: Date.now().toString() + '-model', role: 'model', text: currentOutputRef.current }]);
+                if (currentOutputRef.current.trim()) {
+                  setMessages(prev => [...prev, { id: Date.now().toString() + '-model', role: 'model', text: currentOutputRef.current }]);
+                }
                 currentOutputRef.current = '';
                 setActiveOutput('');
               }
@@ -180,13 +206,11 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
           },
-          systemInstruction: {
-            parts: [{ text: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
+          systemInstruction: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
 Datos de invitados: ${JSON.stringify(guests)}
-IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y preguntando en qué puedes ayudarle.` }]
-          },
-          inputAudioTranscription: { languageCodes: ['es-ES'] },
-          outputAudioTranscription: { languageCodes: ['es-ES'] },
+IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y preguntando en qué puedes ayudarle.`,
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
         }
       });
 

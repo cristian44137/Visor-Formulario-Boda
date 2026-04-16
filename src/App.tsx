@@ -9,6 +9,7 @@ import { CSVUploader } from './components/CSVUploader';
 import { GuestList } from './components/GuestList';
 import { AIChatAssistant } from './components/AIChatAssistant';
 import { Heart } from 'lucide-react';
+import { getAttendanceStatus } from './lib/utils';
 
 export default function App() {
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -60,7 +61,11 @@ export default function App() {
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex justify-between items-center border-b border-border/50 pb-4">
               <h2 className="text-2xl font-serif font-medium">
-                Total de Invitados: <span className="text-primary">{guests.length + guests.reduce((acc, g) => acc + g.companions.length, 0)}</span>
+                Total de Invitados: <span className="text-primary">{guests.reduce((acc, g) => {
+                  const status = getAttendanceStatus(g.attendance);
+                  if (status === 'not_attending') return acc;
+                  return acc + 1 + g.companions.length;
+                }, 0)}</span>
               </h2>
               <button 
                 onClick={() => setGuests([])}
