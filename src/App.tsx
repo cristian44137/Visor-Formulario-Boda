@@ -64,7 +64,16 @@ export default function App() {
                 Total de Invitados: <span className="text-primary">{guests.reduce((acc, g) => {
                   const status = getAttendanceStatus(g.attendance);
                   if (status === 'not_attending') return acc;
-                  return acc + 1 + g.companions.length;
+                  
+                  // Count the main guest
+                  let count = 1;
+                  
+                  // Count all companions (including children)
+                  if (g.companions && g.companions.length > 0) {
+                    count += g.companions.length;
+                  }
+                  
+                  return acc + count;
                 }, 0)}</span>
               </h2>
               <button 

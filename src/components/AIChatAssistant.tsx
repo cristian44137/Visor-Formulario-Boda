@@ -167,20 +167,20 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
                 pcmData[i] = view.getInt16(i * 2, true);
               }
               
-              const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000); // Output is 24000Hz
+              const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
               const channelData = audioBuffer.getChannelData(0);
               for (let i = 0; i < pcmData.length; i++) {
                 channelData[i] = pcmData[i] / 32768.0;
               }
-              const source = audioCtx.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(audioCtx.destination);
+              const audioSource = audioCtx.createBufferSource();
+              audioSource.buffer = audioBuffer;
+              audioSource.connect(audioCtx.destination);
               
               const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
-              source.start(startTime);
+              audioSource.start(startTime);
               nextPlayTimeRef.current = startTime + audioBuffer.duration;
               
-              source.onended = () => {
+              audioSource.onended = () => {
                 if (audioCtx.currentTime >= nextPlayTimeRef.current - 0.1) {
                   setCallState('listening');
                 }
