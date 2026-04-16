@@ -20,25 +20,30 @@ export function CSVUploader({ onUpload }: CSVUploaderProps) {
         const parsedGuests: Guest[] = results.data.map((row: any, index: number) => {
           const companions: Companion[] = [];
           
-          // Check for companion 1
-          if (row['AcompaÃ±Ante 1 Nombre'] || row['Acompañante 1 Nombre']) {
-            companions.push({
-              name: row['AcompaÃ±Ante 1 Nombre'] || row['Acompañante 1 Nombre'] || '',
-              allergies: row['AcompaÃ±Ante 1 Alergias'] || row['Acompañante 1 Alergias'] || '',
-              isChild: false, // Not in example for comp 1, but let's default
-              shoeSize: row['AcompaÃ±Ante 1 Talla Calzado'] || row['Acompañante 1 Talla Calzado'] || '',
-            });
+          for (let i = 1; i <= 10; i++) {
+            const nameKey1 = `AcompaÃ±Ante ${i} Nombre`;
+            const nameKey2 = `Acompañante ${i} Nombre`;
+            if (row[nameKey1] || row[nameKey2]) {
+              const isChildVal = row[`AcompaÃ±Ante ${i} Es NiÃ±O`] || row[`Acompañante ${i} Es Niño`];
+              companions.push({
+                name: row[nameKey1] || row[nameKey2] || '',
+                allergies: row[`AcompaÃ±Ante ${i} Alergias`] || row[`Acompañante ${i} Alergias`] || '',
+                isChild: isChildVal === 'on' || isChildVal === 'true' || isChildVal === 'Sí' || isChildVal === 'Si' || isChildVal === 'yes' || isChildVal === '1',
+                shoeSize: row[`AcompaÃ±Ante ${i} Talla Calzado`] || row[`Acompañante ${i} Talla Calzado`] || '',
+              });
+            }
           }
 
-          // Check for companion 2
-          if (row['AcompaÃ±Ante 2 Nombre'] || row['Acompañante 2 Nombre']) {
-            companions.push({
-              name: row['AcompaÃ±Ante 2 Nombre'] || row['Acompañante 2 Nombre'] || '',
-              allergies: row['AcompaÃ±Ante 2 Alergias'] || row['Acompañante 2 Alergias'] || '',
-              isChild: (row['AcompaÃ±Ante 2 Es NiÃ±O'] || row['Acompañante 2 Es Niño']) === 'on',
-              shoeSize: row['AcompaÃ±Ante 2 Talla Calzado'] || row['Acompañante 2 Talla Calzado'] || '',
-            });
-          }
+          let extraChildren = 0;
+          Object.keys(row).forEach(key => {
+            const lowerKey = key.toLowerCase();
+            if ((lowerKey.includes('niñ') || lowerKey.includes('nin')) && 
+                !lowerKey.includes('acompañante') && 
+                !lowerKey.includes('acompa')) {
+              const val = parseInt(row[key]);
+              if (!isNaN(val)) extraChildren += val;
+            }
+          });
 
           return {
             id: `guest-${index}`,
@@ -49,6 +54,7 @@ export function CSVUploader({ onUpload }: CSVUploaderProps) {
             shoeSize: row['Talla Calzado'] || '',
             allergies: row['Alergias'] || '',
             suggestedSong: row['Cancion Sugerida'] || row['Canción Sugerida'] || '',
+            childrenCount: extraChildren,
             companions,
           };
         }).filter((guest: Guest) => guest.name || guest.attendance); // Filter out completely empty rows

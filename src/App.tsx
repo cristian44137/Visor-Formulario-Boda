@@ -73,6 +73,10 @@ export default function App() {
                     count += g.companions.length;
                   }
                   
+                  if (g.childrenCount) {
+                    count += g.childrenCount;
+                  }
+                  
                   return acc + count;
                 }, 0)}</span>
               </h2>

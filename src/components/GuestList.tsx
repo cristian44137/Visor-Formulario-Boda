@@ -73,9 +73,16 @@ export function GuestList({ guests }: GuestListProps) {
         totalAttending++; // Main guest
         totalAttending += g.companions.length; // Companions
         totalChildren += g.companions.filter(c => c.isChild).length;
+        if (g.childrenCount) {
+          totalAttending += g.childrenCount;
+          totalChildren += g.childrenCount;
+        }
       } else if (status === 'not_attending') {
         totalNotAttending++; // Main guest
         totalNotAttending += g.companions.length; // Companions
+        if (g.childrenCount) {
+          totalNotAttending += g.childrenCount;
+        }
       }
     });
 

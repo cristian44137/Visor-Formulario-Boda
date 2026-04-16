@@ -14,5 +14,6 @@ export interface Guest {
   shoeSize: string;
   allergies: string;
   suggestedSong: string;
+  childrenCount?: number;
   companions: Companion[];
 }
