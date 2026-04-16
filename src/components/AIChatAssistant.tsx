@@ -23,27 +23,15 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isCalling, setIsCalling] = useState(false);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [audioCache, setAudioCache] = useState<Record<string, string>>({});
+  const [ttsLoading, setTtsLoading] = useState<Record<string, boolean>>({});
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const playingIdRef = useRef<string | null>(null);
   const liveSessionRef = useRef<any>(null);
   const liveAudioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-
-  // Load voices
-  useEffect(() => {
-    const loadVoices = () => {
-      setVoices(window.speechSynthesis.getVoices());
-    };
-    loadVoices();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-    return () => {
-      window.speechSynthesis.cancel();
-    };
-  }, []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -51,6 +39,40 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isGenerating]);
+
+  // Preload TTS for the latest model message
+  useEffect(() => {
+    const latestMsg = messages[messages.length - 1];
+    if (latestMsg && latestMsg.role === 'model' && !audioCache[latestMsg.id] && !ttsLoading[latestMsg.id]) {
+      const preload = async () => {
+        setTtsLoading(prev => ({ ...prev, [latestMsg.id]: true }));
+        try {
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+          const response = await ai.models.generateContent({
+            model: "gemini-3.1-flash-tts-preview",
+            contents: [{ parts: [{ text: latestMsg.text }] }],
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+                  },
+              },
+            },
+          });
+          const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (base64Audio) {
+            setAudioCache(prev => ({ ...prev, [latestMsg.id]: base64Audio }));
+          }
+        } catch (error) {
+          console.error("TTS preload error:", error);
+        } finally {
+          setTtsLoading(prev => ({ ...prev, [latestMsg.id]: false }));
+        }
+      };
+      preload();
+    }
+  }, [messages, audioCache, ttsLoading]);
 
   // Initial Summary
   useEffect(() => {
@@ -103,56 +125,78 @@ Usa Markdown para formatear el texto (negritas, listas). Sé muy directo, sin in
         liveAudioContextRef.current = null;
       }
       setPlayingId(null);
+      playingIdRef.current = null;
       return;
     }
 
-    setPlayingId(messageId);
-    
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-tts-preview",
-        contents: [{ parts: [{ text: text }] }],
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: 'Zephyr' },
-              },
-          },
-        },
-      });
+    if (ttsLoading[messageId]) return;
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        if (liveAudioContextRef.current) {
-           liveAudioContextRef.current.close();
+    setPlayingId(messageId);
+    playingIdRef.current = messageId;
+    
+    let base64Audio = audioCache[messageId];
+
+    if (!base64Audio) {
+      setTtsLoading(prev => ({ ...prev, [messageId]: true }));
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+          model: "gemini-3.1-flash-tts-preview",
+          contents: [{ parts: [{ text: text }] }],
+          config: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+                },
+            },
+          },
+        });
+
+        base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (base64Audio) {
+          setAudioCache(prev => ({ ...prev, [messageId]: base64Audio }));
         }
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        liveAudioContextRef.current = audioCtx;
-        
-        const binary = atob(base64Audio);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        const pcmData = new Int16Array(bytes.buffer);
-        const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
-        const channelData = audioBuffer.getChannelData(0);
-        for (let i = 0; i < pcmData.length; i++) {
-          channelData[i] = pcmData[i] / 32768.0;
-        }
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioCtx.destination);
-        source.onended = () => setPlayingId(null);
-        source.start();
-      } else {
-        setPlayingId(null);
+      } catch (error) {
+        console.error("TTS error:", error);
+      } finally {
+        setTtsLoading(prev => ({ ...prev, [messageId]: false }));
       }
-    } catch (error) {
-      console.error("TTS error:", error);
+    }
+
+    if (playingIdRef.current !== messageId) return;
+
+    if (base64Audio) {
+      if (liveAudioContextRef.current) {
+         liveAudioContextRef.current.close();
+      }
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      liveAudioContextRef.current = audioCtx;
+      
+      const binary = atob(base64Audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const pcmData = new Int16Array(bytes.buffer);
+      const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
+      const channelData = audioBuffer.getChannelData(0);
+      for (let i = 0; i < pcmData.length; i++) {
+        channelData[i] = pcmData[i] / 32768.0;
+      }
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+      source.onended = () => {
+        if (playingIdRef.current === messageId) {
+          setPlayingId(null);
+          playingIdRef.current = null;
+        }
+      };
+      source.start();
+    } else {
       setPlayingId(null);
+      playingIdRef.current = null;
     }
   };
 
@@ -220,11 +264,11 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
       mediaStreamRef.current = stream;
       
       if (!liveAudioContextRef.current) {
-        liveAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        liveAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       }
       const audioCtx = liveAudioContextRef.current;
 
@@ -235,13 +279,6 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
         model: 'gemini-3.1-flash-live-preview',
         callbacks: {
           onopen: () => {
-            sessionPromise.then((session) => {
-              session.sendClientContent({
-                turns: [{ role: 'user', parts: [{ text: 'Hola, acabo de conectarme. Salúdame brevemente y dime que estás escuchando.' }] }],
-                turnComplete: true
-              });
-            });
-
             const source = audioCtx.createMediaStreamSource(stream);
             const processor = audioCtx.createScriptProcessor(4096, 1, 1);
             processorRef.current = processor;
@@ -258,14 +295,14 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
               
               const bytes = new Uint8Array(pcm16.buffer);
               let binary = '';
-              for (let i = 0; i < bytes.length; i += 1024) {
-                binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 1024)));
+              for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
               }
               const base64 = btoa(binary);
               
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({
-                  audio: { data: base64, mimeType: 'audio/pcm;rate=24000' }
+                  audio: { data: base64, mimeType: 'audio/pcm;rate=16000' }
                 });
               });
             };
@@ -300,8 +337,15 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
 Datos de invitados: ${JSON.stringify(guests)}
 Historial previo de la conversación:
 ${historyText}
-Continúa la conversación de forma natural por voz.`
+IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente.`
         }
+      });
+
+      sessionPromise.then((session) => {
+        session.sendClientContent({
+          turns: [{ role: 'user', parts: [{ text: 'Hola, acabo de conectarme.' }] }],
+          turnComplete: true
+        });
       });
 
       setIsCalling(true);
@@ -363,14 +407,17 @@ Continúa la conversación de forma natural por voz.`
                       size="sm"
                       className="h-8 rounded-full bg-white/50 hover:bg-white"
                       onClick={() => togglePlay(msg.id, msg.text)}
+                      disabled={ttsLoading[msg.id] && playingId !== msg.id}
                     >
-                      {playingId === msg.id ? (
+                      {ttsLoading[msg.id] && playingId !== msg.id ? (
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-primary" />
+                      ) : playingId === msg.id ? (
                         <Square className="w-3.5 h-3.5 mr-1.5 fill-current" />
                       ) : (
                         <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
                       )}
                       <span className="text-xs font-medium">
-                        {playingId === msg.id ? 'Detener' : 'Escuchar'}
+                        {ttsLoading[msg.id] && playingId !== msg.id ? 'Cargando...' : playingId === msg.id ? 'Detener' : 'Escuchar'}
                       </span>
                     </Button>
                   </div>
