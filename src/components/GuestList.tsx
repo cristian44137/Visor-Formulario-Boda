@@ -63,18 +63,17 @@ export function GuestList({ guests }: GuestListProps) {
   };
 
   const stats = useMemo(() => {
-    let totalAttending = 0;
+    let totalAdults = 0;
     let totalNotAttending = 0;
     let totalChildren = 0;
 
     guests.forEach(g => {
       const status = getAttendanceStatus(g.attendance);
       if (status === 'attending') {
-        totalAttending++; // Main guest
-        totalAttending += g.companions.length; // Companions
+        totalAdults++; // Main guest
+        totalAdults += g.companions.filter(c => !c.isChild).length; // Adult companions
         totalChildren += g.companions.filter(c => c.isChild).length;
         if (g.childrenCount) {
-          totalAttending += g.childrenCount;
           totalChildren += g.childrenCount;
         }
       } else if (status === 'not_attending') {
@@ -86,7 +85,7 @@ export function GuestList({ guests }: GuestListProps) {
       }
     });
 
-    return { totalAttending, totalNotAttending, totalChildren };
+    return { totalAdults, totalNotAttending, totalChildren };
   }, [guests]);
 
   return (
@@ -94,8 +93,8 @@ export function GuestList({ guests }: GuestListProps) {
       <div className="grid grid-cols-3 gap-4 mb-2">
         <Card className="bg-primary/5 border-primary/10 shadow-sm">
           <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-            <span className="text-3xl font-serif text-primary mb-1">{stats.totalAttending}</span>
-            <span className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground font-medium">Asistentes</span>
+            <span className="text-3xl font-serif text-primary mb-1">{stats.totalAdults}</span>
+            <span className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground font-medium">Adultos</span>
           </CardContent>
         </Card>
         <Card className="bg-primary/5 border-primary/10 shadow-sm">

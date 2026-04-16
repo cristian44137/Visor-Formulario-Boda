@@ -61,20 +61,16 @@ export default function App() {
           <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex justify-between items-center border-b border-border/50 pb-4">
               <h2 className="text-2xl font-serif font-medium">
-                Total de Invitados: <span className="text-primary">{guests.reduce((acc, g) => {
+                Total de Asistentes: <span className="text-primary">{guests.reduce((acc, g) => {
                   const status = getAttendanceStatus(g.attendance);
                   if (status === 'not_attending') return acc;
                   
                   // Count the main guest
                   let count = 1;
                   
-                  // Count all companions (including children)
+                  // Adult companions only
                   if (g.companions && g.companions.length > 0) {
-                    count += g.companions.length;
-                  }
-                  
-                  if (g.childrenCount) {
-                    count += g.childrenCount;
+                    count += g.companions.filter(c => !c.isChild).length;
                   }
                   
                   return acc + count;

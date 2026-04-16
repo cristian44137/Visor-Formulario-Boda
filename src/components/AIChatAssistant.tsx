@@ -153,38 +153,43 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
           },
           onmessage: async (message: any) => {
             // Handle audio playback
-            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (base64Audio) {
-              setCallState('speaking');
-              const binary = atob(base64Audio);
-              const buffer = new ArrayBuffer(binary.length);
-              const view = new DataView(buffer);
-              for (let i = 0; i < binary.length; i++) {
-                view.setUint8(i, binary.charCodeAt(i));
-              }
-              const pcmData = new Int16Array(Math.floor(binary.length / 2));
-              for (let i = 0; i < pcmData.length; i++) {
-                pcmData[i] = view.getInt16(i * 2, true);
-              }
-              
-              const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
-              const channelData = audioBuffer.getChannelData(0);
-              for (let i = 0; i < pcmData.length; i++) {
-                channelData[i] = pcmData[i] / 32768.0;
-              }
-              const audioSource = audioCtx.createBufferSource();
-              audioSource.buffer = audioBuffer;
-              audioSource.connect(audioCtx.destination);
-              
-              const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
-              audioSource.start(startTime);
-              nextPlayTimeRef.current = startTime + audioBuffer.duration;
-              
-              audioSource.onended = () => {
-                if (audioCtx.currentTime >= nextPlayTimeRef.current - 0.1) {
-                  setCallState('listening');
+            const parts = message.serverContent?.modelTurn?.parts;
+            if (parts) {
+              for (const part of parts) {
+                const base64Audio = part?.inlineData?.data;
+                if (base64Audio) {
+                  setCallState('speaking');
+                  const binary = atob(base64Audio);
+                  const buffer = new ArrayBuffer(binary.length);
+                  const view = new DataView(buffer);
+                  for (let i = 0; i < binary.length; i++) {
+                    view.setUint8(i, binary.charCodeAt(i));
+                  }
+                  const pcmData = new Int16Array(Math.floor(binary.length / 2));
+                  for (let i = 0; i < pcmData.length; i++) {
+                    pcmData[i] = view.getInt16(i * 2, true);
+                  }
+                  
+                  const audioBuffer = audioCtx.createBuffer(1, pcmData.length, 24000);
+                  const channelData = audioBuffer.getChannelData(0);
+                  for (let i = 0; i < pcmData.length; i++) {
+                    channelData[i] = pcmData[i] / 32768.0;
+                  }
+                  const audioSource = audioCtx.createBufferSource();
+                  audioSource.buffer = audioBuffer;
+                  audioSource.connect(audioCtx.destination);
+                  
+                  const startTime = Math.max(nextPlayTimeRef.current, audioCtx.currentTime);
+                  audioSource.start(startTime);
+                  nextPlayTimeRef.current = startTime + audioBuffer.duration;
+                  
+                  audioSource.onended = () => {
+                    if (audioCtx.currentTime >= nextPlayTimeRef.current - 0.1) {
+                      setCallState('listening');
+                    }
+                  };
                 }
-              };
+              }
             }
             
             // Handle interruption
@@ -246,9 +251,8 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
       });
 
       sessionPromise.then((session) => {
-        session.sendClientContent({
-          turns: [{ role: 'user', parts: [{ text: 'Hola, acabo de conectarme.' }] }],
-          turnComplete: true
+        session.sendRealtimeInput({
+          text: 'Hola, acabo de conectarme.'
         });
       });
 
