@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/card'
 import { Button } from './ui/button';
 import { Bot, User, PhoneCall, PhoneOff, Loader2, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Guest } from '../types';
 
 interface Message {
@@ -23,6 +24,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [callState, setCallState] = useState<'idle' | 'listening' | 'speaking' | 'processing'>('idle');
   const [isMuted, setIsMuted] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState('Almir');
   
   const [activeInput, setActiveInput] = useState('');
   const [activeOutput, setActiveOutput] = useState('');
@@ -255,7 +257,7 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } }
           },
           systemInstruction: {
             parts: [{
@@ -426,48 +428,65 @@ IMPORTANTE: Empieza la conversación saludando al usuario inmediatamente y pregu
         </div>
       </CardContent>
       
-      <CardFooter className="p-4 border-t border-border/50 bg-muted/20 flex justify-center gap-3">
-        {isCalling && !isConnecting && (
-          <Button
-            size="icon"
-            onClick={() => setIsMuted(!isMuted)}
-            className={`w-14 h-14 rounded-full shadow-md transition-all shrink-0 ${
-              isMuted 
-                ? 'bg-amber-500 hover:bg-amber-600 text-white' 
-                : 'bg-white hover:bg-gray-100 text-gray-700 border border-border'
-            }`}
-            title={isMuted ? "Reactivar micrófono" : "Pausar micrófono"}
-          >
-            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-          </Button>
+      <CardFooter className="p-4 border-t border-border/50 bg-muted/20 flex flex-col items-center gap-4">
+        {!isCalling && !isConnecting && (
+          <div className="flex items-center gap-3 w-full max-w-sm">
+            <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Voz:</span>
+            <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+              <SelectTrigger className="bg-background">
+                <SelectValue placeholder="Selecciona una voz" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Almir">Almir (Masculina)</SelectItem>
+                <SelectItem value="Aoede">Aoede (Femenina)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         )}
-        <Button 
-          size="lg" 
-          onClick={toggleCall}
-          className={`rounded-full px-8 py-6 shadow-md transition-all w-full max-w-sm ${
-            isCalling 
-              ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
-              : 'bg-primary hover:bg-primary/90'
-          }`}
-          disabled={isConnecting}
-        >
-          {isConnecting ? (
-            <>
-              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-              Conectando...
-            </>
-          ) : isCalling ? (
-            <>
-              <PhoneOff className="w-5 h-5 mr-2" />
-              Finalizar Llamada
-            </>
-          ) : (
-            <>
-              <PhoneCall className="w-5 h-5 mr-2" />
-              Iniciar Llamada de Voz
-            </>
+        
+        <div className="flex justify-center gap-3 w-full">
+          {isCalling && !isConnecting && (
+            <Button
+              size="icon"
+              onClick={() => setIsMuted(!isMuted)}
+              className={`w-14 h-14 rounded-full shadow-md transition-all shrink-0 ${
+                isMuted 
+                  ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                  : 'bg-white hover:bg-gray-100 text-gray-700 border border-border'
+              }`}
+              title={isMuted ? "Reactivar micrófono" : "Pausar micrófono"}
+            >
+              {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+            </Button>
           )}
-        </Button>
+          <Button 
+            size="lg" 
+            onClick={toggleCall}
+            className={`rounded-full px-8 py-6 shadow-md transition-all w-full max-w-sm ${
+              isCalling 
+                ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground' 
+                : 'bg-primary hover:bg-primary/90'
+            }`}
+            disabled={isConnecting}
+          >
+            {isConnecting ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Conectando...
+              </>
+            ) : isCalling ? (
+              <>
+                <PhoneOff className="w-5 h-5 mr-2" />
+                Finalizar Llamada
+              </>
+            ) : (
+              <>
+                <PhoneCall className="w-5 h-5 mr-2" />
+                Iniciar Llamada de Voz
+              </>
+            )}
+          </Button>
+        </div>
       </CardFooter>
     </Card>
   );
