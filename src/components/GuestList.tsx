@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Search, Users, Music, Utensils, Phone, CheckCircle2, XCircle, HelpCircle, Footprints, Download, ArrowUpDown } from 'lucide-react';
+import { Search, Users, Music, Utensils, Phone, CheckCircle2, XCircle, HelpCircle, Footprints, ArrowUpDown } from 'lucide-react';
 
 interface GuestListProps {
   guests: Guest[];
@@ -37,12 +37,7 @@ export function GuestList({ guests }: GuestListProps) {
         matchesStatus = status === 'not_attending';
       }
 
-      let matchesAllergies = true;
-      if (showOnlyAllergies) {
-        matchesAllergies = !!guest.allergies || guest.companions.some(c => !!c.allergies);
-      }
-
-      return matchesSearch && matchesStatus && matchesAllergies;
+      return matchesSearch && matchesStatus;
     });
 
     // Sorting logic
@@ -61,7 +56,7 @@ export function GuestList({ guests }: GuestListProps) {
     });
 
     return result;
-  }, [guests, searchQuery, filterStatus, showOnlyAllergies, sortBy]);
+  }, [guests, searchQuery, filterStatus, sortBy]);
 
   const getStatusBadge = (attendance: string) => {
     const status = getAttendanceStatus(attendance);
@@ -93,31 +88,6 @@ export function GuestList({ guests }: GuestListProps) {
 
     return { totalAttending, totalNotAttending, totalChildren };
   }, [guests]);
-
-  const exportToCSV = () => {
-    const headers = ['Nombre', 'Asistencia', 'Teléfono', 'Alergias', 'Canción Sugerida', 'Talla Calzado', 'Acompañantes'];
-    const rows = filteredGuests.map(g => {
-      const companionsStr = g.companions.map(c => `${c.name}${c.isChild ? ' (Niño)' : ''}${c.allergies ? ` [Alergias: ${c.allergies}]` : ''}${c.shoeSize ? ` [Talla: ${c.shoeSize}]` : ''}`).join(' | ');
-      return [
-        `"${g.name}"`,
-        `"${g.attendance}"`,
-        `"${g.phone || ''}"`,
-        `"${g.allergies || ''}"`,
-        `"${g.suggestedSong || ''}"`,
-        `"${g.shoeSize || ''}"`,
-        `"${companionsStr}"`
-      ].join(',');
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "lista_invitados_filtrada.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   return (
     <div className="space-y-6">
@@ -152,9 +122,9 @@ export function GuestList({ guests }: GuestListProps) {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+        <div className="flex gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-full sm:w-[140px] bg-white">
+            <SelectTrigger className="w-full sm:w-[150px] bg-white">
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
@@ -177,28 +147,6 @@ export function GuestList({ guests }: GuestListProps) {
               <SelectItem value="status">Por Estado</SelectItem>
             </SelectContent>
           </Select>
-
-          <button
-            onClick={() => setShowOnlyAllergies(!showOnlyAllergies)}
-            className={`px-3 py-2 rounded-md border text-sm font-medium transition-colors flex items-center gap-2 shrink-0 ${
-              showOnlyAllergies 
-                ? 'bg-primary text-primary-foreground border-primary' 
-                : 'bg-white text-muted-foreground border-input hover:bg-muted'
-            }`}
-            title="Filtrar invitados con alergias"
-          >
-            <Utensils className="w-4 h-4" />
-            <span className="hidden sm:inline">Alergias</span>
-          </button>
-
-          <button
-            onClick={exportToCSV}
-            className="px-3 py-2 rounded-md border border-input bg-white text-muted-foreground hover:bg-muted text-sm font-medium transition-colors flex items-center gap-2 shrink-0"
-            title="Exportar lista actual a CSV"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Exportar</span>
-          </button>
         </div>
       </div>
 

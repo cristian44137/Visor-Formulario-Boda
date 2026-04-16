@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Mic, MicOff, Send, Play, Square, Loader2, Bot, User, PhoneCall, PhoneOff } from 'lucide-react';
+import { Send, Play, Square, Loader2, Bot, User, PhoneCall, PhoneOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Guest } from '../types';
 
@@ -21,15 +21,15 @@ export function AIChatAssistant({ guests }: AIChatAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [isCalling, setIsCalling] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
   const liveSessionRef = useRef<any>(null);
   const liveAudioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Load voices
   useEffect(() => {
@@ -165,55 +165,23 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
     }
   };
 
-  const toggleListening = async () => {
-    if (isListening) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      setIsListening(false);
-      return;
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Tu navegador no soporta reconocimiento de voz.");
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => track.stop());
-    } catch (err) {
-      console.error("Microphone permission denied:", err);
-      alert("Para usar el micrófono, necesitas conceder permisos en tu navegador.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'es-ES';
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((result: any) => result[0])
-        .map((result: any) => result.transcript)
-        .join('');
-      setInputValue(transcript);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  };
-
   const toggleCall = async () => {
     if (isCalling) {
       if (liveSessionRef.current) {
-        liveSessionRef.current.close();
+        try {
+          liveSessionRef.current.close();
+        } catch (e) {
+          console.error("Error closing session:", e);
+        }
         liveSessionRef.current = null;
+      }
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
       }
       if (liveAudioContextRef.current) {
         liveAudioContextRef.current.close();
@@ -225,6 +193,7 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
       
       if (!liveAudioContextRef.current) {
         liveAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -234,37 +203,36 @@ Asistente (Sé MUY breve, directo y conciso. Usa Markdown para formatear tu resp
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const historyText = messages.map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text}`).join('\n\n');
       
-      const session = await ai.live.connect({
-        model: 'gemini-3.1-live-preview',
-        config: {
-          systemInstruction: {
-            parts: [{ text: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
-Datos de invitados: ${JSON.stringify(guests)}
-Historial previo de la conversación:
-${historyText}
-Continúa la conversación de forma natural por voz.` }]
-          },
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: "Zephyr" }
+      const sessionPromise = ai.live.connect({
+        model: 'gemini-3.1-flash-live-preview',
+        callbacks: {
+          onopen: () => {
+            const source = audioCtx.createMediaStreamSource(stream);
+            const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+            processorRef.current = processor;
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+              if (!isCalling || !liveSessionRef.current) return;
+              const inputData = e.inputBuffer.getChannelData(0);
+              const pcm16 = new Int16Array(inputData.length);
+              for (let i = 0; i < inputData.length; i++) {
+                pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
               }
-            }
-          }
-        }
-      });
-
-      liveSessionRef.current = session;
-      setIsCalling(true);
-
-      // Handle incoming audio
-      session.on('content', (content: any) => {
-        if (content.modelTurn?.parts) {
-          content.modelTurn.parts.forEach((part: any) => {
-            if (part.inlineData && part.inlineData.data) {
-              const base64 = part.inlineData.data;
-              const binary = atob(base64);
+              const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+              
+              sessionPromise.then((session) => {
+                session.sendRealtimeInput({
+                  audio: { data: base64, mimeType: 'audio/pcm;rate=24000' }
+                });
+              });
+            };
+          },
+          onmessage: async (message: any) => {
+            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            if (base64Audio) {
+              const binary = atob(base64Audio);
               const bytes = new Uint8Array(binary.length);
               for (let i = 0; i < binary.length; i++) {
                 bytes[i] = binary.charCodeAt(i);
@@ -280,33 +248,23 @@ Continúa la conversación de forma natural por voz.` }]
               source.connect(audioCtx.destination);
               source.start();
             }
-          });
+          }
+        },
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } }
+          },
+          systemInstruction: `Eres el asistente de la boda de Silvina y Luis. Habla en español de España.
+Datos de invitados: ${JSON.stringify(guests)}
+Historial previo de la conversación:
+${historyText}
+Continúa la conversación de forma natural por voz.`
         }
       });
 
-      // Handle outgoing audio
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
-
-      processor.onaudioprocess = (e) => {
-        if (!isCalling || !liveSessionRef.current) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
-        }
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-        liveSessionRef.current.send({
-          realtimeInput: {
-            mediaChunks: [{
-              mimeType: "audio/pcm;rate=24000",
-              data: base64
-            }]
-          }
-        });
-      };
+      setIsCalling(true);
+      liveSessionRef.current = await sessionPromise;
 
     } catch (error) {
       console.error("Error starting live call:", error);
@@ -322,15 +280,6 @@ Continúa la conversación de forma natural por voz.` }]
           <Bot className="w-5 h-5" />
           Asistente de la Boda
         </CardTitle>
-        <Button 
-          variant={isCalling ? "destructive" : "outline"} 
-          size="sm" 
-          onClick={toggleCall}
-          className={`rounded-full gap-2 ${isCalling ? 'animate-pulse' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
-        >
-          {isCalling ? <PhoneOff className="w-4 h-4" /> : <PhoneCall className="w-4 h-4" />}
-          {isCalling ? 'Colgar' : 'Llamar'}
-        </Button>
       </CardHeader>
       
       <CardContent className="flex-1 overflow-hidden p-0 relative">
@@ -413,7 +362,7 @@ Continúa la conversación de forma natural por voz.` }]
                 <div className="relative">
                   <div className="w-16 h-16 bg-primary/20 rounded-full animate-ping absolute inset-0"></div>
                   <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center relative z-10 shadow-lg">
-                    <Mic className="w-8 h-8 text-primary-foreground" />
+                    <PhoneCall className="w-8 h-8 text-primary-foreground" />
                   </div>
                 </div>
                 <span className="text-sm font-medium text-primary animate-pulse">Llamada en curso... Habla ahora</span>
@@ -430,19 +379,18 @@ Continúa la conversación de forma natural por voz.` }]
         >
           <Button
             type="button"
-            variant={isListening ? "destructive" : "secondary"}
+            variant={isCalling ? "destructive" : "secondary"}
             size="icon"
-            className={`shrink-0 rounded-full ${isListening ? 'animate-pulse' : ''}`}
-            onClick={toggleListening}
-            disabled={isCalling}
+            className={`shrink-0 rounded-full ${isCalling ? 'animate-pulse' : ''}`}
+            onClick={toggleCall}
           >
-            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            {isCalling ? <PhoneOff className="w-4 h-4" /> : <PhoneCall className="w-4 h-4" />}
           </Button>
           
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder={isCalling ? "Llamada en curso..." : isListening ? "Escuchando..." : "Pregunta sobre los invitados..."}
+            placeholder={isCalling ? "Llamada en curso..." : "Pregunta sobre los invitados..."}
             className="flex-1 rounded-full bg-white"
             disabled={isGenerating || isCalling}
           />
